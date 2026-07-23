@@ -15,6 +15,7 @@ production code (config_loader.load_runtime_config, cli.cmd_validate_backlog).
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import textwrap
 from pathlib import Path
@@ -479,10 +480,14 @@ class TestBootstrapEnvironmentDryRun:
         """
         skill_md = _SKILLS_DIR / "bootstrap-environment" / "SKILL.md"
         content = skill_md.read_text(encoding="utf-8")
-        assert "https://github.com/" in content, (
-            "bootstrap-environment SKILL.md must use 'https://github.com/' URL pattern for git clone"
+        # Match the clone command as a whole rather than testing for the host and
+        # the verb as independent substrings: that both pins the documented
+        # contract more tightly and avoids looking like URL-prefix validation.
+        clone_command = re.compile(r'git clone\s+"?https://github\.com/\S+')
+        assert clone_command.search(content), (
+            "bootstrap-environment SKILL.md must document a "
+            "'git clone https://github.com/<repo>.git <checkout_directory>' command"
         )
-        assert "git clone" in content, "bootstrap-environment SKILL.md must use 'git clone' command"
 
 
 @pytest.mark.unit
