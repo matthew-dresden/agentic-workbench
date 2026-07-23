@@ -114,6 +114,14 @@ indent-style = "space"
 mypy_path = ["src", "tests", "tools"]
 explicit_package_bases = true
 
+# pyarrow ships no py.typed marker from 25.0.0 onward, which makes mypy raise
+# import-untyped on workbench/reporting/archive.py.  Pinning the lockfile below
+# 25 would fix it only until the next unconstrained ``uv lock``; silencing the
+# import here keeps the typecheck gate stable across pyarrow versions instead.
+[[tool.mypy.overrides]]
+module = ["pyarrow.*"]
+ignore_missing_imports = true
+
 [tool.coverage.run]
 source = ["workbench"]
 
