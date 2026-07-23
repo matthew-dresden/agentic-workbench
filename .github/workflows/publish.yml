@@ -1,0 +1,86 @@
+---
+name: Publish to PyPI
+
+# Publishes agentic-workbench to PyPI via Trusted Publishing (OIDC) -- no API
+# token is stored. Authentication comes from the `pypi` GitHub environment plus
+# the `id-token: write` permission on the publish job, which PyPI verifies
+# against the Trusted Publisher registered for this project.
+#
+# Manual dispatch only: this repository has no semantic-release automation, so a
+# release is cut by dispatching this workflow with the version to publish. The
+# version must match `pyproject.toml`.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version to publish (e.g., 0.1.0)"
+        required: true
+        type: string
+
+concurrency:
+  group: publish-pipeline
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate-version:
+    name: Validate version format
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate semver format
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_NAME="${{ github.event.inputs.tag }}"
+          if ! [[ "$TAG_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid version format: $TAG_NAME. Use MAJOR.MINOR.PATCH (e.g., 0.1.0) with no prefix."
+            exit 1
+          fi
+          echo "Version format is valid: $TAG_NAME"
+
+  build-and-publish:
+    name: Build and publish to PyPI
+    needs: validate-version
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/p/agentic-workbench
+    permissions:
+      id-token: write # Required for PyPI Trusted Publishing (OIDC)
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Verify tag matches pyproject.toml version
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_VERSION="${{ github.event.inputs.tag }}"
+          TOML_VERSION="$(uv version --short)"
+          echo "Dispatched tag:        $TAG_VERSION"
+          echo "pyproject.toml version: $TOML_VERSION"
+          if [[ "$TAG_VERSION" != "$TOML_VERSION" ]]; then
+            echo "::error::Version mismatch: dispatched tag ($TAG_VERSION) != pyproject.toml ($TOML_VERSION). Bump pyproject.toml first."
+            exit 1
+          fi
+          echo "Version consistency verified: $TAG_VERSION"
+
+      - name: Build sdist and wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          skip-existing: true
+          attestations: false
+          verbose: true
