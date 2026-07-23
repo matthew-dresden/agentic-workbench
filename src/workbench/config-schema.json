@@ -1,0 +1,611 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Workbench Configuration",
+  "description": "Schema for backlog/config/workbench.yaml",
+  "type": "object",
+  "required": ["repos"],
+  "additionalProperties": false,
+  "properties": {
+    "repos": {
+      "type": "object",
+      "description": "Map of org/repo keys to per-repository configuration.",
+      "minProperties": 1,
+      "patternProperties": {
+        "^[^/]+/[^/]+$": {
+          "type": ["object", "null"],
+          "description": "Per-repository configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "default_branch": {
+              "type": "string",
+              "description": "Default branch for this repo."
+            },
+            "checkout_directory": {
+              "type": "string",
+              "description": "Relative path under WORKBENCH_WORKSPACE_ROOT for this repo's checkout."
+            },
+            "merge_strategy": {
+              "type": "string",
+              "enum": ["merge", "squash", "rebase"],
+              "description": "Per-repo PR merge strategy override."
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "merge_strategy": {
+      "type": "string",
+      "enum": ["merge", "squash", "rebase"],
+      "description": "Default PR merge strategy for all repos. Effective strategy at merge time resolves as: WORKBENCH_MERGE_STRATEGY env var > per-repo repos.<org/repo>.merge_strategy > this top-level value > 'squash'."
+    },
+    "max_executor_retries": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Maximum number of executor retry attempts per work unit when judge reviews fail. Default: 10."
+    },
+    "max_executor_retries_per_judge": {
+      "type": "object",
+      "description": "Optional per-judge override of max_executor_retries (issue #122). Keys must be in the canonical judge allowlist (REVIEW_JUDGE_NAMES + SECURITY_JUDGE_NAMES). Each value falls back to max_executor_retries when absent.",
+      "additionalProperties": false,
+      "properties": {
+        "code_review": { "type": "integer", "minimum": 1 },
+        "test_review": { "type": "integer", "minimum": 1 },
+        "doc_review": { "type": "integer", "minimum": 1 },
+        "changes_manifest": { "type": "integer", "minimum": 1 },
+        "security_review": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "use_bedrock": {
+      "type": "boolean",
+      "description": "Whether to route LLM calls through AWS Bedrock."
+    },
+    "bedrock_region": {
+      "type": "string",
+      "description": "AWS region for Bedrock API calls."
+    },
+    "allowed_orgs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of GitHub organisations permitted for operations."
+    },
+    "display_timezone": {
+      "type": ["string", "null"],
+      "description": "IANA timezone name (e.g. 'America/New_York', 'Europe/London') applied by every workbench command that renders timestamps -- `workbench report`, `workbench hook-tail`, `workbench watch`, and any future command. When unset, each command defaults to the OS local timezone. Override per-invocation via the WORKBENCH_DISPLAY_TIMEZONE env var. Report-specific `report.display_timezone` / WORKBENCH_REPORT_TIMEZONE take precedence over this top-level setting for the report command only."
+    },
+    "log_file": {
+      "type": ["string", "null"],
+      "description": "Workspace-relative path to the orchestrator's structured shared aggregate log file (for example 'logs/backlog-a-orchestrator.log'). When set, both `setup_logging` (the writer) and `cmd_report` (the reader) consult this single source of truth so the orchestrator and the report cannot read/write different files by accident. When unset, the default is '<DEFAULT_LOG_SUBDIR>/<DEFAULT_LOG_FILENAME>' (logs/orchestrator.log). Named sessions additionally write a per-session log at '.workbench/sessions/<name>/orchestrator.log' (read via 'report --session <name>'). Per-invocation override via the WORKBENCH_LOG_FILE env var still takes precedence (useful for tests)."
+    },
+    "timeouts": {
+      "type": "object",
+      "description": "Timeout values in seconds.",
+      "additionalProperties": false,
+      "properties": {
+        "gh_api": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "GitHub API call timeout in seconds."
+        },
+        "test": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Test suite run timeout in seconds."
+        },
+        "security_fetch": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Security advisory fetch timeout in seconds."
+        },
+        "llm": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "LLM API call timeout in seconds."
+        },
+        "command": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Shell command execution timeout in seconds."
+        },
+        "orchestrator_poll_interval": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Orchestrator polling interval in seconds."
+        },
+        "github_check": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "GitHub check status polling timeout in seconds."
+        }
+      }
+    },
+    "git_ops": {
+      "type": "object",
+      "description": "Git operations workflow settings.",
+      "additionalProperties": false,
+      "properties": {
+        "update_submodule": {
+          "type": "boolean",
+          "description": "When true, update the parent repo's submodule reference after each PR merge. Set to true only when target repos are git submodules of a parent workspace repo."
+        },
+        "single_branch": {
+          "type": "string",
+          "description": "When set, all work units use this branch name instead of per-unit backlog/<id> branches. Enables accumulating multiple commits on one branch for a single PR."
+        },
+        "defer_pr": {
+          "type": "boolean",
+          "description": "When true, git-ops commits locally only (no push, no PR, no merge). Use git-ops-finalize to push and create the PR after all work units are complete. Only meaningful when single_branch is set."
+        },
+        "pause_before_merge": {
+          "type": "boolean",
+          "description": "When true, cmd_git_ops pushes the PR and waits for green CI then transitions the work unit to in-review instead of merging; the orchestrator's loop reconciles in-review tasks via cmd_check_merge on the next iteration. Issue #101. Default false. Mutually exclusive with defer_pr: true and single_branch: <name> (validated at config load)."
+        },
+        "inline_orphan_cleanup": {
+          "type": "boolean",
+          "description": "When true (the default), cmd_git_ops runs cleanup_tracked_orphans inline as a workbench-authored chore commit before the task's commit when build/state orphan paths are detected. When false, falls back to the legacy proposal-task path. Phase 1 of the orphan-cascade fix. Override via WORKBENCH_INLINE_ORPHAN_CLEANUP."
+        },
+        "ci_failure_retry": {
+          "type": "boolean",
+          "description": "When true (the default), cmd_git_ops returns rc=2 on CI failure to trigger an executor retry with the failing-job log as feedback. When false, returns rc=1 BLOCKED on the first CI failure (legacy behaviour). Issue #115. Override via WORKBENCH_CI_FAILURE_RETRY_ENABLED."
+        },
+        "orphan_patterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Operator override of the built-in orphan-pattern fnmatch list (terraform state, terragrunt cache, Python pycache, coverage, etc.). When non-empty, REPLACES the built-in list entirely. Override via WORKBENCH_ORPHAN_IGNORE_PATTERNS. Default: [] (use the built-in list)."
+        },
+        "local_only": {
+          "type": "boolean",
+          "description": "When true, the target repo(s) are treated as local-only -- no origin git remote, never pushed, no PRs, no CI. ensure_branch creates the work-unit branch off the local default branch (no 'git fetch origin'). Requires defer_pr: true, forbids pause_before_merge: true, and requires every entry in repos: to set an explicit default_branch:. Used for operational workflows (AWS teardowns, evidence capture, audits) where workbench drives work but does not edit application code. Default: false."
+        },
+        "auto_finalize": {
+          "type": "boolean",
+          "description": "When true, the orchestrate skill automatically invokes 'workbench git-ops-finalize <repo>' once all work units for the repo are terminal. Requires defer_pr: true. Incompatible with local_only: true (no remote to push to). A marker file at <workspace>/.workbench/auto-finalize-fired-<repo>.marker prevents duplicate invocations. Default: false."
+        },
+        "auto_merge": {
+          "type": "boolean",
+          "description": "When true, the orchestrate skill automatically invokes 'gh pr merge --<merge_strategy>' once the post-E7 CI watcher reports GREEN. Requires auto_finalize: true AND defer_pr: true. Incompatible with local_only: true. When the E7 watcher is absent, emits [AUTO_MERGE_SKIPPED] no_ci_watcher and skips. A marker file at <workspace>/.workbench/auto-merge-fired-<repo>.marker prevents duplicate invocations. Default: false."
+        },
+        "pr_review_resolution": {
+          "type": "object",
+          "description": "PR review-comment polling settings (issue #116). Disabled by default. When enabled, cmd_git_ops polls gh pr view for asynchronous bot review feedback (Copilot, Q-Dev, internal review bots) before merging.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Top-level toggle. When false (default), the entire phase is a no-op. Override via WORKBENCH_PR_REVIEW_RESOLUTION_ENABLED."
+            },
+            "agents": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Comma-separated allowlist of GitHub login names whose unresolved review comments block the merge. Empty default; populate when review bots are configured on the target repo. Override via WORKBENCH_PR_REVIEW_AGENTS."
+            },
+            "decision_blocks": {
+              "type": "boolean",
+              "description": "When true (default), reviewDecision == CHANGES_REQUESTED hard-blocks the merge regardless of bot allowlist. Override via WORKBENCH_PR_REVIEW_DECISION_BLOCKS."
+            },
+            "settle_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Total settle-window length in seconds for the PR review poll loop. Default 60. Override via WORKBENCH_PR_REVIEW_SETTLE_SECONDS."
+            },
+            "poll_interval": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Per-poll cadence in seconds inside the settle window. Default 5. Override via WORKBENCH_PR_REVIEW_POLL_INTERVAL."
+            }
+          }
+        }
+      }
+    },
+    "stop_hook": {
+      "type": "object",
+      "description": "Stop hook circuit breaker settings.",
+      "additionalProperties": false,
+      "properties": {
+        "max_blocks": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum consecutive stop-hook blocks before circuit breaker trips and allows stop. Default: 5."
+        },
+        "window_seconds": {
+          "type": "integer",
+          "minimum": 10,
+          "description": "Time window in seconds for counting stop-hook blocks. Counter resets after this period. Default: 180."
+        },
+        "stale_task_minutes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Minutes before an in-progress task is considered stale. Hook warns instead of blindly blocking. Default: 120."
+        }
+      }
+    },
+    "hook_tail": {
+      "type": "object",
+      "description": "workbench hook-tail column-cap settings (issue #134). EVENT_WIDTH stays a hook_tail.py-local constant; the four below are the operator-tunable knobs.",
+      "additionalProperties": false,
+      "properties": {
+        "agent_width": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Column width for the agent name. Default: 12."
+        },
+        "tool_width": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Column width for the tool name. Default: 8."
+        },
+        "description_max": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Max chars for the description column. Default: 120 (bumped from 100 in the release that introduces this block)."
+        },
+        "stdout_preview_max": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Max chars for the result-preview column after the pipe. Default: 80."
+        }
+      }
+    },
+    "orchestrate": {
+      "type": "object",
+      "description": "Orchestrator runtime tuning (issue #144).",
+      "additionalProperties": false,
+      "properties": {
+        "max_cascade_depth": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Cap on recovery-of-a-recovery cascade depth. When a proposal would land at depth >= this cap, the source task transitions to NEEDS_OPERATOR_ATTENTION instead of materialising another recovery layer. Default: 2."
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "description": "Threshold and limit values.",
+      "additionalProperties": false,
+      "properties": {
+        "alert_summary": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of security alert summaries to include."
+        },
+        "output_truncation": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Character limit for command output truncation."
+        },
+        "llm_evidence_truncation": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Character limit for LLM evidence content truncation."
+        },
+        "llm_file_context": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of files included in LLM context."
+        },
+        "llm_file_preview_chars": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Character limit for per-file LLM preview."
+        },
+        "ci_failure_log_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Byte cap for the trimmed failing-job log written to .workbench/ci-failures/<id>-<n>.log when ci_failure_retry is enabled. Default 32768. Override via WORKBENCH_CI_FAILURE_LOG_BYTES."
+        }
+      }
+    },
+    "debug": {
+      "type": "object",
+      "description": "Diagnostic-tuning knobs. Set these only when investigating a specific orchestrator-cadence problem; production workspaces leave this section absent.",
+      "additionalProperties": false,
+      "properties": {
+        "check_registration_retries": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of times wait_for_checks retries gh pr checks when 'no checks reported' contradicts the local workflow-file glob (issue #114 race-defence). Default 12. Override via WORKBENCH_CHECK_REGISTRATION_RETRIES."
+        },
+        "check_registration_delay_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Sleep between check-registration retries, in seconds. Default 5. Override via WORKBENCH_CHECK_REGISTRATION_DELAY_SECONDS."
+        },
+        "blocked_recovery_window_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Recency cap for the AWAITING_AUTO_RECOVERY signal in the 3-state blocked-task classifier. Tasks whose most recent [BLOCKED] audit-comment timestamp is older than this window fall through to NEEDS_OPERATOR_ATTENTION. Default 1800. Override via WORKBENCH_BLOCKED_RECOVERY_WINDOW_SECONDS."
+        }
+      }
+    },
+    "report": {
+      "type": "object",
+      "description": "Report and cost estimation settings. Issue #223: the legacy scalar token_cost_per_million_input / token_cost_per_million_output / token_cost_discount fields were retired in favour of a per-model rate table. Workspaces that still set the old fields get a fail-fast error at config-load time.",
+      "additionalProperties": false,
+      "properties": {
+        "models": {
+          "type": "object",
+          "description": "Per-model token-pricing table (issue #223). Each key is a Claude model id (matches the literal `message.model` field in transcripts, e.g. `claude-opus-4-7`). Operators add new model ids without code changes by listing them here. See docs/model-pricing.md for the default rate table.",
+          "additionalProperties": {
+            "type": "object",
+            "description": "Rates for a single model. `input` and `output` are required. The four optional fields override the top-level `cache_*_multiplier` defaults and the global correction factor for this model only.",
+            "additionalProperties": false,
+            "required": ["input", "output"],
+            "properties": {
+              "input": {"type": "number", "minimum": 0, "description": "Cost per million input tokens in USD."},
+              "output": {"type": "number", "minimum": 0, "description": "Cost per million output tokens in USD."},
+              "cache_read_multiplier": {"type": "number", "minimum": 0, "description": "Optional per-model override for cache-read multiplier (relative to input rate). When omitted, the top-level report.cache_read_multiplier applies."},
+              "cache_write_5min_multiplier": {"type": "number", "minimum": 0, "description": "Optional per-model override for 5-min cache-write multiplier."},
+              "cache_write_1hr_multiplier": {"type": "number", "minimum": 0, "description": "Optional per-model override for 1-hour cache-write multiplier."},
+              "correction_factor": {"type": "number", "exclusiveMinimum": 0, "description": "Per-model contract correction factor (issue #223). Computed cost is multiplied by this value after every other factor. Default 1.0 (no correction). Set via `workbench cost-calibrate <actual-usd>` rather than hand-editing in most workflows."}
+            }
+          }
+        },
+        "default_model": {
+          "type": "object",
+          "description": "Rates applied to the `<unknown>` bucket: any transcript message whose `model` field is missing OR a model id not present in `report.models`. When absent, falls back to the Opus 4.7 list rates so unknown models err toward over-reporting cost.",
+          "additionalProperties": false,
+          "required": ["input", "output"],
+          "properties": {
+            "input": {"type": "number", "minimum": 0},
+            "output": {"type": "number", "minimum": 0},
+            "cache_read_multiplier": {"type": "number", "minimum": 0},
+            "cache_write_5min_multiplier": {"type": "number", "minimum": 0},
+            "cache_write_1hr_multiplier": {"type": "number", "minimum": 0},
+            "correction_factor": {"type": "number", "exclusiveMinimum": 0}
+          }
+        },
+        "display_timezone": {
+          "type": "string",
+          "description": "IANA timezone name (e.g. 'America/Denver', 'Europe/London') for displaying timestamps in `workbench report`. Defaults to the host system's local timezone. Useful when running inside a devcontainer or VM whose system TZ differs from your actual location. Override via WORKBENCH_REPORT_TIMEZONE env var."
+        },
+        "cache_read_multiplier": {
+          "type": "number",
+          "description": "Cost multiplier for cache-read tokens, relative to base input rate. Defaults to 0.10 (Anthropic's published rate). Override only when running on a platform with different caching pricing (e.g. some Bedrock configurations)."
+        },
+        "cache_write_5min_multiplier": {
+          "type": "number",
+          "description": "Cost multiplier for 5-minute prompt-cache write tokens, relative to base input rate. Defaults to 1.25 (Anthropic's published rate)."
+        },
+        "cache_write_1hr_multiplier": {
+          "type": "number",
+          "description": "Cost multiplier for 1-hour prompt-cache write tokens, relative to base input rate. Defaults to 2.0 (Anthropic's published rate)."
+        },
+        "data_residency_multiplier": {
+          "type": "number",
+          "description": "Cost multiplier applied per-call to usage.inference_geo-flagged tokens (issue #124). Defaults to 1.10 (Anthropic's published rate). Composes with cache + base-rate multipliers and applies before token_cost_discount."
+        },
+        "fast_mode_multiplier": {
+          "type": "number",
+          "description": "Cost multiplier applied per-call to usage.speed=='fast' tokens (issue #124). Defaults to 6.0 (Opus 4.6 fast-mode premium). Composes with cache + base-rate multipliers and applies before token_cost_discount."
+        },
+        "recent_pace_tasks": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of most-recently-completed tasks averaged for the 'Recent pace' projection in `workbench report`. Defaults to 10. Lower for more responsiveness, higher for more stability. Override via WORKBENCH_REPORT_RECENT_PACE_TASKS env var."
+        },
+        "token_cost_per_million_input": {
+          "description": "REMOVED in issue #223 (per-model cost pricing). Schema-accepts the key so the runtime fail-fast in config_loader.py can name the new `report.models` block in its error message; setting this key produces an immediate ValueError pointing at docs/model-pricing.md.",
+          "$comment": "removed-in-#223"
+        },
+        "token_cost_per_million_output": {
+          "description": "REMOVED in issue #223. See token_cost_per_million_input.",
+          "$comment": "removed-in-#223"
+        },
+        "token_cost_discount": {
+          "description": "REMOVED in issue #223. Per-model contract correction is now expressed via `report.models.<id>.correction_factor`.",
+          "$comment": "removed-in-#223"
+        }
+      }
+    },
+    "manifest_amendment": {
+      "type": "object",
+      "description": "Configuration for the Changes Manifest amendment workflow (enabled by default). When enabled, executors that discover a required production fix during TDD GREEN can request an amendment to the Changes Manifest; a dedicated judge reviews the request, and on approval the manifest is updated atomically with a Layer 3 deterministic post-check.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether the amendment workflow is active for this backlog. Default true (set false to opt out)."
+        },
+        "allowed_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["tdd_green_production_fix"]
+          },
+          "description": "List of amendment reasons this backlog accepts. Amendment requests whose reason is not in this list are rejected by the Layer 1 pre-filter. Default: ['tdd_green_production_fix']."
+        },
+        "max_requests_per_execution": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum amendments applied to one task during one executor run. Default 1. Prevents amendment loops."
+        }
+      }
+    },
+    "backlog": {
+      "type": "object",
+      "description": "Backlog lifecycle settings. Controls how new work units are created, what default status they receive (issue #189), and bulk-operation thresholds (issue #194).",
+      "additionalProperties": false,
+      "properties": {
+        "default_status_for_new_work_units": {
+          "type": "string",
+          "enum": ["draft", "in-queue"],
+          "description": "Lifecycle status written into the '## Status:' line of every newly created work-unit file. Use 'draft' to require explicit human promotion before the orchestrator picks up the task. Use 'in-queue' (the default) for the legacy behaviour where new tasks are picked up immediately. AC-189-8 and AC-189-9."
+        },
+        "bulk_update_confirm_threshold": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of work units above which workbench set-status with selector flags prompts for confirmation before applying a bulk status change. Zero means always prompt. Default: 10. AC-194-4."
+        },
+        "bulk_update_audit_path": {
+          "type": "string",
+          "description": "Workspace-relative path to the file where bulk-update audit rows are appended. Default: 'logs/bulk-updates.log'. AC-194-7."
+        }
+      }
+    },
+    "task_factory": {
+      "type": "object",
+      "description": "Opt-in configuration for the task-factory loop. When enabled, the orchestrator invokes blocker-resolver + task-factory after an amendment reject to generate new `proposed` work units for the out-of-scope production fixes the amender surfaced. Requires manifest_amendment.enabled: true.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether the task-factory loop runs after amendment rejects. Default false (opt-in). Requires manifest_amendment.enabled: true."
+        },
+        "auto_accept_proposals": {
+          "type": "boolean",
+          "description": "When true (the default), workbench auto-promotes every task-factory-produced draft at sweep time instead of leaving it at status `proposed` for operator review. Set false to require operator review. Only takes effect when task_factory.enabled is true. ADR-11."
+        }
+      }
+    },
+    "validate": {
+      "type": "object",
+      "description": "Toggles for additional validate-backlog rules. Existing rules (1-19) run unconditionally; the rules listed here are individually toggleable.",
+      "additionalProperties": false,
+      "properties": {
+        "check_orphan_path_tokens": {
+          "type": "boolean",
+          "description": "Rule 20: cross-check Acceptance Criteria and Definition of Done sections of every Task against the Changes Manifest. Backtick-quoted path-shaped tokens that do not appear in the Manifest (and are not declared read-only via a trailing `(ref)` marker) emit an integrity error. Catches spec drift where AC/DoD prose restates a path that disagrees with the Manifest. Default true (set false to opt out). See docs/backlog-contract.md."
+        }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "description": "Plugin-skill (spec-to-backlog, create-spec) operator-facing configuration. Lets operators point the skills at their own workspace exemplars (a representative backlog and a representative spec) rather than a hardcoded built-in path, plus tune the fan-out and iteration budget. All fields are optional; absent values fall through to skill-side defaults (issue #221 E1-E10).",
+      "additionalProperties": false,
+      "properties": {
+        "exemplar_backlog_path": {
+          "type": "string",
+          "description": "Absolute or workspace-relative path to a representative BACKLOG.md the spec-to-backlog skill consults to internalise the project's quality bar. Optional; when absent the skill falls back to the canonical-section list embedded in its prompt rather than reading any exemplar file. Operators set this when they have a richer in-workspace exemplar than the embedded section list."
+        },
+        "exemplar_spec_path": {
+          "type": "string",
+          "description": "Absolute or workspace-relative path to a representative spec file the create-spec skill consults to internalise the project's quality bar. Optional; when absent the skill falls back to the 16-section structural skeleton embedded in its prompt rather than reading any exemplar file."
+        },
+        "fan_out_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "When the Epic decomposition yields more than this many leaf tasks, the spec-to-backlog skill fans the per-task authoring out across one Agent invocation per Feature instead of writing tasks serially. Default 10. Set higher to keep the work serial on small workspaces; set lower to fan out aggressively on large ones."
+        },
+        "max_iterations": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum self-critique iterations per skill invocation. When exceeded, the skill emits a [SKILL_MAX_ITERATIONS_REACHED] audit comment with the unresolved rubric items instead of silently shipping a sub-quality artefact. Default 5."
+        }
+      }
+    },
+    "notifications": {
+      "type": "object",
+      "description": "Operator-facing notifications fired on lifecycle events. Each event under 'events' is independently toggled. Each notification endpoint (Slack today; Discord/Teams/etc. later) lives in its own nested sub-block so new transports can be added without touching the event-toggle surface. See docs/slack-notifications.md.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Master switch. When false, no event fires regardless of per-event toggles. Default: false."
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Per-POST HTTP timeout in seconds. Default 10."
+        },
+        "events": {
+          "type": "object",
+          "description": "Per-event toggles. Every field defaults to false so the dispatcher is silent until the operator opts in.",
+          "additionalProperties": false,
+          "properties": {
+            "work_unit_done": {"type": "boolean", "description": "Fire when a work unit transitions to done. Default: false."},
+            "work_unit_blocked_operator": {"type": "boolean", "description": "Fire when the classifier flags a blocked WU as OPERATOR_ACTION_REQUIRED. Fires on every transition into that class (initial entry + reclassification). Default: false."},
+            "work_unit_blocked_runtime_degradation": {"type": "boolean", "description": "Fire when the classifier flags a blocked WU as RUNTIME_DEGRADATION (SDK Agent-tool loss; requires 'make start' restart). Default: false."},
+            "work_unit_blocked_held": {"type": "boolean", "description": "Fire when the classifier flags a blocked WU as HELD (status is 'hold'; operator must resume manually). Default: false."},
+            "work_unit_blocked_on_held": {"type": "boolean", "description": "Fire when the classifier flags a blocked WU as BLOCKED_ON_HELD (marker target is in 'hold'; operator must resume the held target). Default: false."},
+            "work_unit_blocked_auto_clearing": {"type": "boolean", "description": "Fire when the classifier flags a blocked WU as AUTO_CLEARING_VIA_PROPOSAL (ADR-07 cascade in flight; will auto-unblock). Default: false."},
+            "work_unit_blocked_awaiting_dependency": {"type": "boolean", "description": "Fire when the classifier flags a blocked WU as AWAITING_DEPENDENCY (regular dep still in flight; will auto-unblock). Default: false."},
+            "work_unit_blocked_amendment_recovery": {"type": "boolean", "description": "Fire when the classifier flags a blocked WU as AWAITING_AMENDMENT_RECOVERY (recovery signal on disk; will resume on next sweep). Default: false."},
+            "work_unit_materialised": {"type": "boolean", "description": "Fire when a draft WU file is materialised from a proposal. Default: false."},
+            "work_unit_promoted": {"type": "boolean", "description": "Fire when a draft WU is promoted to in-queue. Default: false."},
+            "pr_opened": {"type": "boolean", "description": "Fire when 'gh pr create' succeeds. Default: false."},
+            "pr_merged": {"type": "boolean", "description": "Fire when 'gh pr merge' succeeds. Default: false."},
+            "ci_failure": {"type": "boolean", "description": "Fire when CI checks on a WU PR fail. Default: false."},
+            "ci_pass": {"type": "boolean", "description": "Fire when CI checks on the finalize-path batch PR turn green (PR ready for manual merge under auto_merge: false). Issue #219. Default: false."},
+            "orchestrator_stop": {"type": "boolean", "description": "Fire when the orchestrator loop exits (clean, drain, SIGTERM, or crash). Default: false."},
+            "orchestrator_auto_restart": {"type": "boolean", "description": "Fire when the orchestrator exits 42 (RUNTIME_DEGRADATION-only NO_ACTIONABLE) and the Makefile loop restarts. Default: false."}
+          }
+        },
+        "slack": {
+          "type": "object",
+          "description": "Slack endpoint. ONE webhook URL is shared by every event; the payload itself carries an <!here> mention so the same payload works whether the webhook is bound to a one-person private DM channel or a shared team channel.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Endpoint-level toggle. When false, no Slack POST fires regardless of the master switch or per-event toggles. Default: false."
+            },
+            "webhook_url": {
+              "type": ["string", "null"],
+              "description": "Slack incoming webhook URL (https://hooks.slack.com/...). null disables Slack notifications. Env override: WORKBENCH_NOTIFICATIONS_SLACK_WEBHOOK_URL."
+            }
+          }
+        }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "description": "Per-agent model overrides (ADR-25). Each field defaults to null; the agent then runs on the model declared in its .md frontmatter. Set a field to override for this workspace -- workbench materialises a workspace-local shadow plugin tree under <workspace>/.workbench/plugin-shadow/workbench/ and rewrites the matching frontmatter line. JUDGE_AGENT_MODEL_<NAME> env vars override these YAML values. Use short names (opus|sonnet|haiku) or full Anthropic model ids (claude-opus-4-7) when use_bedrock: false; use the matching Bedrock id (us.anthropic.claude-opus-4-7-v1) when use_bedrock: true.",
+      "additionalProperties": false,
+      "properties": {
+        "executor": {
+          "type": "string",
+          "description": "Model for plugin/workbench-orchestrate/agents/executor.md. Default null (use frontmatter)."
+        },
+        "blocker_resolver": {
+          "type": "string",
+          "description": "Model for plugin/workbench-orchestrate/agents/blocker-resolver.md. Default null (use frontmatter)."
+        },
+        "manifest_amender": {
+          "type": "string",
+          "description": "Model for plugin/workbench-orchestrate/agents/manifest-amender.md. Default null (use frontmatter)."
+        },
+        "security_reviewer": {
+          "type": "string",
+          "description": "Model for plugin/workbench-orchestrate/agents/security-reviewer.md. Default null (use frontmatter)."
+        },
+        "task_factory": {
+          "type": "string",
+          "description": "Model for plugin/workbench-orchestrate/agents/task-factory.md. Default null (use frontmatter)."
+        },
+        "review_supervisor": {
+          "type": "string",
+          "description": "Model for plugin/workbench-orchestrate/agents/review-supervisor.md. Default null (use frontmatter)."
+        },
+        "review_team": {
+          "type": "object",
+          "description": "Per-judge overrides for the four review_team agents. Each field defaults to null; the corresponding judge then runs on its frontmatter model.",
+          "additionalProperties": false,
+          "properties": {
+            "code_reviewer": {
+              "type": "string",
+              "description": "Model for plugin/workbench-orchestrate/agents/review_team/code-reviewer.md."
+            },
+            "test_reviewer": {
+              "type": "string",
+              "description": "Model for plugin/workbench-orchestrate/agents/review_team/test-reviewer.md."
+            },
+            "doc_reviewer": {
+              "type": "string",
+              "description": "Model for plugin/workbench-orchestrate/agents/review_team/doc-reviewer.md."
+            },
+            "changes_manifest": {
+              "type": "string",
+              "description": "Model for plugin/workbench-orchestrate/agents/review_team/changes-manifest.md."
+            }
+          }
+        }
+      }
+    }
+  }
+}

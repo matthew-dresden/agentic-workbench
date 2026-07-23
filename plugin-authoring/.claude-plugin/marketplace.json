@@ -1,0 +1,19 @@
+{
+  "name": "workbench-authoring",
+  "owner": {
+    "name": "Matthew Dresden",
+    "url": "https://github.com/matthew-dresden"
+  },
+  "metadata": {
+    "description": "Workbench authoring marketplace -- ships the workbench-authoring plugin (spec authoring + backlog materialization phase). The companion workbench-orchestrate marketplace lives at plugin/ in the same repo (issue #224).",
+    "version": "0.2.0"
+  },
+  "plugins": [
+    {
+      "name": "workbench-authoring",
+      "source": "./workbench-authoring/",
+      "description": "Spec authoring + backlog materialization skills (spec-to-backlog, create-spec, configure-workbench, bootstrap-environment). No hooks; safe to enable in any workspace where authoring happens. Use during the planning phase.",
+      "version": "0.2.0"
+    }
+  ]
+}

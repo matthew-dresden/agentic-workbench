@@ -1,0 +1,98 @@
+# Workbench commands for the mpm-deps-work backlog
+#
+# Replace `/path/to/workbench` with the absolute path to your Workbench checkout
+# (in this workspace: /workspaces/rpm-migration/workbench).
+# Replace `/path/to/mpm-deps-work` with the absolute path to this workspace
+# (in this workspace: /workspaces/rpm-migration/mpm-deps-work).
+#
+# WORKBENCH_WORKSPACE_ROOT must point at the directory holding BACKLOG.md (this
+# repo's root). WORKBENCH_CLAUDE_MODEL is the SDK caller's model -- it drives
+# the orchestrate skill's coordination calls. Per-agent work models live in
+# the `agents:` block of backlog/config/workbench.yaml (ADR-25); without an
+# `agents:` block every work agent runs on its plugin .md frontmatter
+# default: executor on sonnet, review-supervisor on sonnet, and the five
+# judges + blocker-resolver + manifest-amender + task-factory on opus.
+
+
+# 1. Non-interactive start
+#    Runs the orchestrate skill end-to-end via the Agent SDK. Use this for
+#    CI / overnight runs / unattended execution. The orchestrator will:
+#      a. Claim every in-queue task in dependency order,
+#      b. Author code + tests on a single shared branch
+#         (feat/mpm-deps-work-2026-05),
+#      c. Run review judges + post-checks per work unit,
+#      d. On every-unit-terminal: push the branch, open ONE PR per repo,
+#         watch CI, retry on failure, and auto-merge (squash) on green.
+WORKBENCH_WORKSPACE_ROOT=/path/to/mpm-deps-work \
+WORKBENCH_CLAUDE_MODEL=us.anthropic.claude-opus-4-7-v1 \
+uv run --project /path/to/workbench python -m workbench.cli start
+
+
+# 2. Interactive start
+#    Launches Claude Code with the workbench plugin loaded. Inside the session,
+#    run `/workbench:orchestrate` or ask "Run the workbench:orchestrate skill to
+#    process the backlog". Pause with Escape, resume with `Continue`, redirect
+#    with natural-language instructions. State is saved in BACKLOG.md and the
+#    work-unit files between sessions.
+WORKBENCH_WORKSPACE_ROOT=/path/to/mpm-deps-work \
+WORKBENCH_CLAUDE_MODEL=us.anthropic.claude-opus-4-7-v1 \
+claude --dangerously-skip-permissions \
+  --plugin-dir /path/to/workbench/plugin/workbench
+
+
+# 3. Progress report
+#    Streams a live progress dashboard on TTY (epic-level summary, recent
+#    transitions, judge verdicts, CI status, cost estimate). Use `--once` for
+#    a single snapshot in CI logs.
+WORKBENCH_WORKSPACE_ROOT=/path/to/mpm-deps-work \
+WORKBENCH_CLAUDE_MODEL=us.anthropic.claude-opus-4-7-v1 \
+uv run --project /path/to/workbench workbench report
+
+
+# 4. Hook tail
+#    Pretty-tails the structured hook-event log at
+#    $WORKBENCH_WORKSPACE_ROOT/hook-logs.jsonl. Each line is one tool call,
+#    judge verdict, or status transition. Useful for live debugging.
+WORKBENCH_WORKSPACE_ROOT=/path/to/mpm-deps-work \
+WORKBENCH_CLAUDE_MODEL=us.anthropic.claude-opus-4-7-v1 \
+uv run --project /path/to/workbench workbench hook-tail
+
+
+# 5. Backlog status
+#    One-shot summary: epic counts, totals, currently-active unit. Suitable
+#    for `watch -n 30 '...'` in a side terminal.
+WORKBENCH_WORKSPACE_ROOT=/path/to/mpm-deps-work \
+WORKBENCH_CLAUDE_MODEL=us.anthropic.claude-opus-4-7-v1 \
+uv run --project /path/to/workbench workbench status
+
+
+# ---------------------------------------------------------------------------
+# Daemon mode + lifecycle CLI (#209)
+# ---------------------------------------------------------------------------
+# `--daemon` detaches the orchestrator into the background and frees the
+# operator's terminal. The instance id is printed on launch and stored in
+# `<workspace>/.workbench/orchestrator.pid`. All lifecycle commands accept
+# either the instance id (`<workspace_name>-<pid-suffix>`) or raw PID.
+
+# 6. Non-interactive start (DAEMON mode -- recommended for production / long runs)
+#    Identical to command 1 except the orchestrator detaches into the
+#    background and returns the shell prompt immediately. Stdout/stderr go
+#    to `<workspace>/logs/orchestrator.log` (append).
+WORKBENCH_WORKSPACE_ROOT=/path/to/mpm-deps-work \
+WORKBENCH_CLAUDE_MODEL=us.anthropic.claude-opus-4-7-v1 \
+uv run --project /path/to/workbench python -m workbench.cli start --daemon
+
+# 7. List every running orchestrator on this host
+uv run --project /path/to/workbench workbench instances
+# Or JSON:
+# uv run --project /path/to/workbench workbench instances --json
+
+# 8. Stop an orchestrator by instance id (SIGTERM; SIGKILL only with --force)
+uv run --project /path/to/workbench workbench stop-instance <instance_id>
+# Optional flags: --timeout N (default 30s), --force (escalate to SIGKILL)
+
+# 9. Tail an orchestrator's log by instance id
+uv run --project /path/to/workbench workbench tail <instance_id> --follow
+
+# 10. Restart an orchestrator (stop + start in the same mode)
+uv run --project /path/to/workbench workbench restart <instance_id>

@@ -1,0 +1,19 @@
+{
+  "name": "workbench",
+  "owner": {
+    "name": "Matthew Dresden",
+    "url": "https://github.com/matthew-dresden"
+  },
+  "metadata": {
+    "description": "Workbench orchestrate marketplace -- ships the workbench-orchestrate plugin (autonomous execution phase). The companion workbench-authoring marketplace lives at plugin-authoring/ in the same repo (issue #224).",
+    "version": "0.3.0"
+  },
+  "plugins": [
+    {
+      "name": "workbench-orchestrate",
+      "source": "./workbench-orchestrate/",
+      "description": "Autonomous backlog execution with LLM-as-judge review, guarded hooks, and the orchestrate skill. Use during the execution phase.",
+      "version": "0.4.0"
+    }
+  ]
+}

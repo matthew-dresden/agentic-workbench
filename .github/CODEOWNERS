@@ -1,0 +1,4 @@
+# Global code owners for agentic-workbench.
+# Every PR requires approval from at least one listed owner.
+# Documented at: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+* @matthew-dresden
