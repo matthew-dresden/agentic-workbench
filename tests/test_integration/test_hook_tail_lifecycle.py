@@ -15,9 +15,32 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pytest
+
+
+def _local_hhmmss(utc_iso: str) -> str:
+    """Render *utc_iso* the way ``hook-tail`` renders it with no ``--tz`` flag.
+
+    The raw log always stores UTC, but the command converts to a display
+    timezone before printing, and the default display zone is the OS local
+    one -- see ``hook_tail.resolve_timezone(None)``, which resolves the local
+    zone as ``datetime.now().astimezone().tzinfo``, and
+    ``hook_tail._format_timestamp``, which then does
+    ``dt.astimezone(tz).strftime("%H:%M:%S")``.
+
+    So the expected wall-clock string is a function of the machine's local
+    timezone: a UTC-formatted literal would only be right on a UTC host (CI)
+    and wrong everywhere else (a developer workstation). Deriving it here with
+    the same two-step rule keeps these assertions exact -- and exactly as
+    strict -- under any ``TZ``, including half-hour offsets like
+    ``Asia/Kolkata``.
+    """
+    local_tz = datetime.now().astimezone().tzinfo
+    dt = datetime.fromisoformat(utc_iso.replace("Z", "+00:00"))
+    return dt.astimezone(local_tz).strftime("%H:%M:%S")
 
 
 def _entry(**overrides) -> dict:
@@ -102,9 +125,11 @@ class TestHookTailDefaultPath:
     def test_prints_formatted_rows_for_each_entry(self, populated_workspace: Path) -> None:
         result = _run_hook_tail(populated_workspace, "--no-follow", "--from-start")
         assert result.returncode == 0
-        assert "00:00:00" in result.stdout
-        assert "00:00:05" in result.stdout
-        assert "00:00:12" in result.stdout
+        # No --tz flag, so rows render in the OS local zone; derive the
+        # expectation with the same rule rather than assuming the host is UTC.
+        assert _local_hhmmss("2026-04-19T00:00:00Z") in result.stdout
+        assert _local_hhmmss("2026-04-19T00:00:05Z") in result.stdout
+        assert _local_hhmmss("2026-04-19T00:00:12Z") in result.stdout
         # Event glyphs
         assert "U>" in result.stdout
         assert "->" in result.stdout
@@ -137,9 +162,11 @@ class TestHookTailExplicitPath:
         result = _run_hook_tail(populated_workspace, str(custom), "--no-follow", "--from-start")
         assert result.returncode == 0
         assert str(custom) in result.stdout
-        assert "09:09:09" in result.stdout
-        # The default workspace hook log was NOT read.
-        assert "00:00:00" not in result.stdout
+        assert _local_hhmmss("2026-04-19T09:09:09Z") in result.stdout
+        # The default workspace hook log was NOT read: none of its entries'
+        # rendered timestamps appear in the output.
+        for skipped in ("2026-04-19T00:00:00Z", "2026-04-19T00:00:05Z", "2026-04-19T00:00:12Z"):
+            assert _local_hhmmss(skipped) not in result.stdout
 
 
 class TestHookTailTimezoneOverride:
@@ -182,7 +209,7 @@ class TestHookTailMalformed:
         result = _run_hook_tail(tmp_path, "--no-follow", "--from-start")
         assert result.returncode == 0
         assert "bad-json" in result.stdout
-        assert "11:22:33" in result.stdout
+        assert _local_hhmmss("2026-04-19T11:22:33Z") in result.stdout
 
 
 class TestHookTailArgumentHygiene:
